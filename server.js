@@ -1,3 +1,19 @@
+import express from "express";
+import fs from "fs";
+import path from "path";
+import AdmZip from "adm-zip";
+import jsforce from "jsforce";
+
+const app = express();
+app.use(express.json({ limit: "10mb" }));
+
+// Use environment variables for credentials!
+const SF_USERNAME = process.env.SF_USERNAME;
+const SF_PASSWORD = process.env.SF_PASSWORD;
+const SF_TOKEN = process.env.SF_TOKEN;
+const SF_LOGIN_URL = process.env.SF_LOGIN_URL || "https://login.salesforce.com";
+const API_KEY = process.env.API_KEY;
+
 app.post("/deploy-flow", async (req, res) => {
   const key = req.headers["x-api-key"];
   if (!key || key !== API_KEY) return res.status(401).json({ error: "Unauthorized" });
@@ -66,3 +82,6 @@ app.post("/deploy-flow", async (req, res) => {
     if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+
+app.listen(process.env.PORT || 3000, () => console.log("🚀 Flow deploy API running"));
