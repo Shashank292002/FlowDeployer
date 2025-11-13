@@ -1,43 +1,21 @@
-import express from "express";
-import fs from "fs";
-import path from "path";
-import AdmZip from "adm-zip";
-import jsforce from "jsforce";
-
-const app = express();
-app.use(express.json({ limit: "10mb" }));
-
-// Use environment variables for credentials!
-const SF_USERNAME = process.env.SF_USERNAME;
-const SF_PASSWORD = process.env.SF_PASSWORD;
-const SF_TOKEN = process.env.SF_TOKEN;
-const SF_LOGIN_URL = process.env.SF_LOGIN_URL || "https://login.salesforce.com";
-const API_KEY = process.env.API_KEY;
-
 app.post("/deploy-flow", async (req, res) => {
-  // API key check
   const key = req.headers["x-api-key"];
-  if (!key || key !== API_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (!key || key !== API_KEY) return res.status(401).json({ error: "Unauthorized" });
 
   let { flowXml, flowName } = req.body;
-  if (!flowXml || !flowName) {
-    return res.status(400).json({ error: "flowXml and flowName are required" });
-  }
+  if (!flowXml || !flowName) return res.status(400).json({ error: "flowXml and flowName are required" });
 
-  // Append timestamp to flowName to avoid cached deployment issues
   const timestamp = Date.now();
-  flowName = `${flowName}_${timestamp}`;
+  flowName = `${flowName}_${timestamp}`; // prevent caching issues
 
+  const tempDir = path.join(process.cwd(), "temp");
+  const flowDir = path.join(tempDir, "flows");
   try {
-    const tempDir = path.join(process.cwd(), "temp");
+    // Ensure temp directories exist
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-
-    const flowDir = path.join(tempDir, "flows");
     if (!fs.existsSync(flowDir)) fs.mkdirSync(flowDir);
 
-    // Write Flow XML
+    // Write flow XML
     const flowPath = path.join(flowDir, `${flowName}.flow-meta.xml`);
     fs.writeFileSync(flowPath, flowXml, "utf8");
 
@@ -60,32 +38,31 @@ app.post("/deploy-flow", async (req, res) => {
     const zipPath = path.join(tempDir, `${flowName}.zip`);
     zip.writeZip(zipPath);
 
-    // Salesforce connection
+    // Salesforce deploy
     const conn = new jsforce.Connection({ loginUrl: SF_LOGIN_URL });
     await conn.login(SF_USERNAME, SF_PASSWORD + SF_TOKEN);
-
-    // Deploy
     const zipContent = fs.readFileSync(zipPath);
     const deployJob = await conn.metadata.deploy(zipContent, { singlePackage: true });
     const deployId = deployJob.id;
 
     console.log(`🚀 Deployment started. ID: ${deployId}`);
 
-    // Poll until deployment completes
     let deployRes;
     while (true) {
       deployRes = await conn.metadata.checkDeployStatus(deployId, true);
       console.log(`⏳ Status: ${deployRes.status}`);
       if (deployRes.done === true || deployRes.done === 'true') break;
-      await new Promise(r => setTimeout(r, 5000)); // wait 5 sec
+      await new Promise(r => setTimeout(r, 5000));
     }
 
     console.log("✅ Deploy Result:", deployRes);
     res.json({ status: "success", flowName, details: deployRes });
+
   } catch (err) {
     console.error("❌ Deployment Error:", err);
     res.status(500).json({ error: err.message });
+  } finally {
+    // CLEANUP: remove temp files to prevent stale deployments
+    if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
-
-app.listen(process.env.PORT || 3000, () => console.log("🚀 Flow deploy API running"));
