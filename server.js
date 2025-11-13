@@ -32,14 +32,21 @@ app.post("/deploy-flow", async (req, res) => {
 
   try {
     const tempDir = path.join(process.cwd(), "temp");
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-
     const flowDir = path.join(tempDir, "flows");
-    if (!fs.existsSync(flowDir)) fs.mkdirSync(flowDir);
+
+    // Clean old temp folders
+    if (fs.existsSync(flowDir)) fs.rmSync(flowDir, { recursive: true, force: true });
+    if (!fs.existsSync(flowDir)) fs.mkdirSync(flowDir, { recursive: true });
+
+    // Increment flow version automatically
+    const updatedFlowXml = flowXml.replace(
+      /<versionNumber>(\d+)<\/versionNumber>/,
+      (_, v) => `<versionNumber>${Number(v) + 1}</versionNumber>`
+    );
 
     // Write flow XML
     const flowPath = path.join(flowDir, `${flowName}.flow-meta.xml`);
-    fs.writeFileSync(flowPath, flowXml, "utf8");
+    fs.writeFileSync(flowPath, updatedFlowXml, "utf8");
 
     // Write package.xml
     const packageXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -53,7 +60,7 @@ app.post("/deploy-flow", async (req, res) => {
     const packagePath = path.join(tempDir, "package.xml");
     fs.writeFileSync(packagePath, packageXml, "utf8");
 
-    // Create zip
+    // Create ZIP
     const zip = new AdmZip();
     zip.addLocalFile(packagePath);
     zip.addLocalFolder(flowDir, "flows");
